@@ -8,7 +8,10 @@ export default function 开腿账() {
   return (
     <div>
       <h1 className="题">开腿账</h1>
-      <p className="述">进站尚未出站的在途开腿。出站成对后状态变已成对；超时或重复进站变已旁路。</p>
+      <p className="述">
+        进站尚未出站的在途开腿。出站成对后状态变已成对；超时或重复进站变已旁路；
+        水位越过日界仍在途变「日界强制结」（日界禁跨旁路，不得再成对）。
+      </p>
       <div className="行"><button className="次" onClick={刷}>刷新</button></div>
       {!行.length ? <div className="空态">暂无开腿。</div> : (
         <table>
@@ -17,7 +20,12 @@ export default function 开腿账() {
             {行.map((r) => (
               <tr key={r.开腿键}>
                 <td>{r.开腿键}</td><td>{r.卡号}</td><td>{r.进站站点键}</td>
-                <td>{r.进站事件时}</td><td>{r.状态}</td>
+                <td>{r.进站事件时}</td>
+                <td>
+                  {r.状态 === "日界强制结"
+                    ? <span className="徽章 败">{r.状态}</span>
+                    : r.状态}
+                </td>
               </tr>
             ))}
           </tbody>

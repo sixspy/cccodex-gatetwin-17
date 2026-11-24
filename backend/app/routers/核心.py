@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from app.db import 夹具目录, 连接
-from app.services import 装载, 贯验, 目录
+from app.services import 装载, 贯验, 目录, 日界
 
 路由 = APIRouter(prefix="/api")
 
@@ -135,6 +135,16 @@ def 装夹具(名: str = "成对样例"):
 @路由.post("/贯验")
 def 做贯验():
     return 贯验.跑贯验()
+
+
+@路由.get("/日界裁决")
+def 做日界裁决(进站事件时: str, 出站事件时: str = ""):
+    """只读日界裁决：进站日、出站日、是否跨日、命运、valid。"""
+    conn = 连接()
+    try:
+        return 日界.裁决(conn, 进站事件时, 出站事件时 or None)
+    finally:
+        conn.close()
 
 
 @路由.get("/贯验")

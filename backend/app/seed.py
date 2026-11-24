@@ -52,6 +52,10 @@ CREATE TABLE IF NOT EXISTS 行程账 (
   进站事件时 TEXT NOT NULL,
   出站事件时 TEXT NOT NULL,
   历时秒 INTEGER NOT NULL DEFAULT 0,
+  进站日 TEXT NOT NULL DEFAULT '',
+  出站日 TEXT NOT NULL DEFAULT '',
+  是否跨日 INTEGER NOT NULL DEFAULT 0,
+  日界架构 TEXT NOT NULL DEFAULT '',
   状态 TEXT NOT NULL DEFAULT '已成对',
   版本 INTEGER NOT NULL DEFAULT 1,
   处理时 TEXT NOT NULL
@@ -81,19 +85,52 @@ def 此刻() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _列名(conn, 表: str) -> set:
+    return {r["name"] for r in conn.execute(f"PRAGMA table_info({表})")}
+
+
+默认站规 = {
+    "站名": "闸对",
+    "最大行程秒": "7200",
+    "同站进出": "允许",
+    "重复进站策略": "旧腿旁路并开新腿",
+    "配对策略": "同卡先进后出",
+    "日界架构": "日界强制切开禁跨",
+    "站规时区": "UTC",
+    "日界时刻": "00:00",
+    "骨架": "刷卡点装载→同卡进站出站成对物化→缺腿异向超时旁路→行程账与刷卡点互证",
+}
+
+
+def 迁移(conn) -> None:
+    """旧库补列；建表语句只对新库生效，存量卷靠这里演进。
+
+    站规/线路的补键放在 初始化库 里做幂等 upsert，不能在此先插键——
+    否则新库会让原有的 COUNT(*)==0 整块种子被跳过。
+    """
+    行程列 = _列名(conn, "行程账")
+    for 列, 定义 in (
+        ("进站日", "TEXT NOT NULL DEFAULT ''"),
+        ("出站日", "TEXT NOT NULL DEFAULT ''"),
+        ("是否跨日", "INTEGER NOT NULL DEFAULT 0"),
+        ("日界架构", "TEXT NOT NULL DEFAULT ''"),
+    ):
+        if 列 not in 行程列:
+            conn.execute(f"ALTER TABLE 行程账 ADD COLUMN {列} {定义}")
+    conn.commit()
+
+
 def 初始化库() -> None:
     conn = 连接()
     conn.executescript(建表)
-    if conn.execute("SELECT COUNT(*) AS c FROM 站规").fetchone()["c"] == 0:
-        for k, v in {
-            "站名": "闸对",
-            "最大行程秒": "7200",
-            "同站进出": "允许",
-            "重复进站策略": "旧腿旁路并开新腿",
-            "配对策略": "同卡先进后出",
-            "骨架": "刷卡点装载→同卡进站出站成对物化→缺腿异向超时旁路→行程账与刷卡点互证",
-        }.items():
-            conn.execute("INSERT INTO 站规(键, 值) VALUES (?, ?)", (k, v))
+    迁移(conn)
+    # 幂等补站规：新库全量播种，旧库只补缺的键，互不覆盖已有口径
+    for k, v in 默认站规.items():
+        conn.execute(
+            "INSERT INTO 站规(键, 值) SELECT ?, ? WHERE NOT EXISTS "
+            "(SELECT 1 FROM 站规 WHERE 键=?)",
+            (k, v, k),
+        )
     if conn.execute("SELECT COUNT(*) AS c FROM 线路").fetchone()["c"] == 0:
         conn.execute("INSERT INTO 线路(线路键, 名称) VALUES (?, ?)", ("线1", "一号线"))
         for i, (k, n) in enumerate(

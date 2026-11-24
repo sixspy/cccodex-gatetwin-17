@@ -1,12 +1,21 @@
 from app.db import 连接
 from app.seed import 此刻
+from app.services import 日界
 
 
 def 跑贯验() -> dict:
-    """行程账与刷卡点互证：每笔已成对行程对应两笔已成对刷卡；旁路/开腿命运自洽。"""
+    """行程账与刷卡点互证：每笔已成对行程对应两笔已成对刷卡；旁路/开腿命运自洽。
+
+    日界口径（日界强制切开禁跨）追加硬约束：
+    - 行程账不得出现跨日单笔（是否跨日=1 即违规），行程日界字段须与裁决一致；
+    - 日界强制结开腿必须有且仅有一条「日界禁跨」旁路，且其进站刷卡已旁路；
+    - 同一进站事件编号不得既挂行程又挂旁路（禁止行程与旁路双落同一对）。
+    """
     conn = 连接()
     try:
         问题 = []
+        规 = {r["键"]: r["值"] for r in conn.execute("SELECT 键, 值 FROM 站规")}
+        架 = 规.get("日界架构", 日界.当前架构)
         刷卡数 = conn.execute("SELECT COUNT(*) FROM 刷卡点").fetchone()[0]
         行程 = conn.execute("SELECT * FROM 行程账 WHERE 状态='已成对'").fetchall()
         开腿数 = conn.execute("SELECT COUNT(*) FROM 开腿账 WHERE 状态='在途'").fetchone()[0]
@@ -31,6 +40,16 @@ def 跑贯验() -> dict:
             if 进["方向"] != "进站" or 出["方向"] != "出站":
                 问题.append(f"行程{t['行程键']}方向不配对")
 
+            裁 = 日界.裁决(conn, t["进站事件时"], t["出站事件时"])
+            if not 裁["valid"]:
+                问题.append(f"行程{t['行程键']}违反日界架构{架}：裁决valid=false")
+            if t["进站日"] != 裁["进站日"] or t["出站日"] != 裁["出站日"]:
+                问题.append(f"行程{t['行程键']}日界字段与裁决不一致")
+            if bool(t["是否跨日"]) != 裁["是否跨日"]:
+                问题.append(f"行程{t['行程键']}跨日标记与裁决不一致")
+            if 裁["是否跨日"]:
+                问题.append(f"行程{t['行程键']}是跨日单笔，{架}下禁止")
+
         成对刷 = conn.execute(
             "SELECT COUNT(*) FROM 刷卡点 WHERE 命运='已成对'"
         ).fetchone()[0]
@@ -42,6 +61,38 @@ def 跑贯验() -> dict:
         ).fetchone()[0]
         if 开腿刷 != 开腿数:
             问题.append(f"已开腿刷卡{开腿刷} ≠ 在途开腿{开腿数}")
+
+        # 日界强制结开腿 ↔ 日界禁跨旁路 一一对应，进站刷卡已旁路
+        强制结腿 = conn.execute(
+            "SELECT * FROM 开腿账 WHERE 状态='日界强制结'"
+        ).fetchall()
+        for leg in 强制结腿:
+            匣 = conn.execute(
+                "SELECT COUNT(*) FROM 旁路匣 WHERE 原因='日界禁跨' AND 事件编号=?",
+                (leg["进站事件编号"],),
+            ).fetchone()[0]
+            if 匣 != 1:
+                问题.append(
+                    f"日界强制结腿{leg['开腿键']}对应日界禁跨旁路{匣}条（应=1）"
+                )
+            刷 = conn.execute(
+                "SELECT * FROM 刷卡点 WHERE 事件编号=?", (leg["进站事件编号"],)
+            ).fetchone()
+            if not 刷 or 刷["命运"] != "已旁路":
+                问题.append(f"日界强制结腿{leg['开腿键']}进站刷卡未旁路")
+            双落 = conn.execute(
+                "SELECT COUNT(*) FROM 行程账 WHERE 进站事件编号=? AND 状态='已成对'",
+                (leg["进站事件编号"],),
+            ).fetchone()[0]
+            if 双落:
+                问题.append(f"进站{leg['进站事件编号']}行程与日界旁路双落")
+
+        # 全局双落守卫：任一进站事件编号不得同时出现在已成对行程与旁路匣
+        for r in conn.execute(
+            """SELECT DISTINCT p.事件编号 FROM 旁路匣 p
+               JOIN 行程账 t ON t.进站事件编号=p.事件编号 AND t.状态='已成对'"""
+        ):
+            问题.append(f"进站{r['事件编号']}同时落行程与旁路（双落）")
 
         通过 = 1 if not 问题 else 0
         说明 = "行程账与刷卡点互证通过" if 通过 else "；".join(问题)[:800]

@@ -18,9 +18,15 @@ def 总览() -> dict:
             "已旁路": c("SELECT COUNT(*) FROM 刷卡点 WHERE 命运='已旁路'"),
             "在途开腿": c("SELECT COUNT(*) FROM 开腿账 WHERE 状态='在途'"),
             "行程数": c("SELECT COUNT(*) FROM 行程账 WHERE 状态='已成对'"),
+            "跨日行程": c("SELECT COUNT(*) FROM 行程账 WHERE 是否跨日=1"),
+            "日界强制结": c("SELECT COUNT(*) FROM 开腿账 WHERE 状态='日界强制结'"),
+            "日界禁跨旁路": c("SELECT COUNT(*) FROM 旁路匣 WHERE 原因='日界禁跨'"),
             "旁路匣": c("SELECT COUNT(*) FROM 旁路匣"),
             "装载批次": c("SELECT COUNT(*) FROM 装载批次"),
             "末次贯验": dict(末) if 末 else None,
+            "日界架构": conn.execute(
+                "SELECT 值 FROM 站规 WHERE 键='日界架构'"
+            ).fetchone()[0],
         }
     finally:
         conn.close()

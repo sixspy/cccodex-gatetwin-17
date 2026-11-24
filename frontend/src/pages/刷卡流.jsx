@@ -1,7 +1,10 @@
 import React, { useEffect, useState } from "react";
 import { 取, 递 } from "../api.js";
 
-const 夹具 = ["成对样例", "缺腿超时样例", "出站孤儿样例", "重复进站样例"];
+const 夹具 = [
+  "成对样例", "缺腿超时样例", "出站孤儿样例", "重复进站样例",
+  "日界同日成对样例", "日界跨日切开样例", "日界并发双落样例",
+];
 
 export default function 刷卡流() {
   const [行, 设行] = useState([]);
